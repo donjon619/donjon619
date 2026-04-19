@@ -3,42 +3,92 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Internal Sales Workspace</title>
+  <title>Internal Sales Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="page-shell">
-    <header class="hero">
-      <div class="hero-copy-block">
-        <p class="eyebrow">Internal Sales Workspace</p>
-        <h1>Browser Sales Organiser</h1>
+    <header class="masthead">
+      <div class="brand-lockup">
+        <p class="brand-kicker">Browser workspace</p>
+        <span class="brand-mark">Internal Sales Command Center</span>
+      </div>
+      <div class="masthead-pill">Focused browser desk</div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-main">
+        <p class="eyebrow">Internal Sales Operations</p>
+        <h1>Stay on top of follow-ups, quotations, and customer files.</h1>
         <p class="hero-copy">
-          A proper browser workspace for internal sales: track tasks, remember project names, upload files, search what is inside them, and keep simple English ready for email or calls.
+          A cleaner browser workspace for internal sales: one next step, stronger task memory, AI file reading, and simple English ready for email and calls.
         </p>
+
+        <div class="hero-chips">
+          <span class="hero-chip">Task focus</span>
+          <span class="hero-chip">Customer memory</span>
+          <span class="hero-chip">AI file reading</span>
+          <span class="hero-chip">Simple English drafts</span>
+        </div>
       </div>
 
-      <section class="today-card">
-        <p class="label">Today</p>
+      <aside class="today-card">
+        <p class="label">Today's focus</p>
         <h2 id="todayDate"></h2>
         <p id="todaySummary">No open work yet. Add your first task below.</p>
-      </section>
-    </header>
+
+        <div class="today-metrics">
+          <article>
+            <span>Open</span>
+            <strong id="todayOpenCount">0</strong>
+          </article>
+          <article>
+            <span>Overdue</span>
+            <strong id="todayOverdueCount">0</strong>
+          </article>
+          <article>
+            <span>Files</span>
+            <strong id="todayFileCount">0</strong>
+          </article>
+        </div>
+      </aside>
+    </section>
+
+    <section class="overview-grid">
+      <article class="stat-card">
+        <span>Open tasks</span>
+        <strong id="openTasks">0</strong>
+      </article>
+      <article class="stat-card">
+        <span>Overdue</span>
+        <strong id="overdueTasks">0</strong>
+      </article>
+      <article class="stat-card">
+        <span>Open value</span>
+        <strong id="quotedValue">AED 0</strong>
+      </article>
+      <article class="stat-card accent">
+        <span>Files stored</span>
+        <strong id="documentCount">0</strong>
+      </article>
+    </section>
 
     <main class="layout">
       <section class="panel form-panel">
         <div class="panel-heading">
-          <h2>Add Sales Task</h2>
-          <p>Keep project, customer, and next action visible so nothing lives only in memory.</p>
+          <p class="section-eyebrow">Pipeline capture</p>
+          <h2>Add sales task</h2>
+          <p>Keep the project name, customer, and next action visible so nothing stays only in memory.</p>
         </div>
 
         <form id="taskForm" class="task-form">
           <label>
             Task title
-            <input id="title" name="title" type="text" maxlength="90" placeholder="Optional. Leave blank and the workspace will create a clear title">
-            <span class="field-note">You can leave this empty if you are in a hurry.</span>
+            <input id="title" name="title" type="text" maxlength="90" placeholder="Optional. Leave blank and the workspace will build a clear title">
+            <span class="field-note">Leave this empty if you are moving fast.</span>
           </label>
 
           <div class="field-row">
@@ -61,7 +111,7 @@
 
             <label>
               Next action
-              <input id="nextAction" name="nextAction" type="text" maxlength="100" placeholder="Call customer and confirm quotation">
+              <input id="nextAction" name="nextAction" type="text" maxlength="100" placeholder="Call customer and confirm quotation approval">
             </label>
           </div>
 
@@ -135,7 +185,7 @@
 
           <label>
             Notes
-            <textarea id="details" name="details" rows="4" maxlength="320" placeholder="Customer asked for better delivery date, revised price, and finance approval."></textarea>
+            <textarea id="details" name="details" rows="4" maxlength="420" placeholder="Delivery request, price issue, promised update, stock note, or any detail you must not forget."></textarea>
           </label>
 
           <button type="submit" class="primary-button">Save task</button>
@@ -144,12 +194,13 @@
 
       <section class="panel helper-panel">
         <div class="panel-heading">
-          <h2>Do This Next</h2>
+          <p class="section-eyebrow">Priority lane</p>
+          <h2>Do this next</h2>
           <p id="nextStepReason">The workspace will choose the clearest next task for you.</p>
         </div>
 
         <div id="nextStepEmpty" class="helper-empty">
-          Add one task and this box will tell you what to do next.
+          Add one task and this box will keep your next move visible.
         </div>
 
         <div id="nextStepContent" class="helper-content hidden">
@@ -178,52 +229,27 @@
           </div>
         </div>
 
-        <div class="note-card">
+        <div class="note-card emphasis-card">
           <div class="panel-heading compact">
-            <h3>AI-Ready Note</h3>
-            <p>Text files can be searched inside this browser workspace now. Full AI reading for PDF, DOCX, images, and deeper summaries needs a secure backend connection.</p>
+            <h3>For low concentration days</h3>
+            <p>Keep every active lead as one task, write the next action in one sentence, and let the workspace hold the memory for you.</p>
           </div>
         </div>
 
         <div class="notes-card">
           <div class="panel-heading compact">
-            <h3>Daily Memory Notes</h3>
-            <p>Use this for promises, stock issues, and anything you do not want to forget.</p>
+            <h3>Daily memory notes</h3>
+            <p>Use this for promises, stock issues, approvals, delivery points, and anything you do not want to forget.</p>
           </div>
           <textarea id="notes" rows="8" placeholder="Morning priorities, customer promises, pricing issues, and the things that must not be missed today..."></textarea>
-        </div>
-      </section>
-
-      <section class="panel snapshot-panel">
-        <div class="panel-heading">
-          <h2>Workspace Snapshot</h2>
-          <p>A fast view of workload, urgency, and uploaded material.</p>
-        </div>
-
-        <div class="stats-grid">
-          <article class="stat-card">
-            <span>Open tasks</span>
-            <strong id="openTasks">0</strong>
-          </article>
-          <article class="stat-card">
-            <span>Overdue</span>
-            <strong id="overdueTasks">0</strong>
-          </article>
-          <article class="stat-card">
-            <span>Open value</span>
-            <strong id="quotedValue">0</strong>
-          </article>
-          <article class="stat-card accent">
-            <span>Files stored</span>
-            <strong id="documentCount">0</strong>
-          </article>
         </div>
       </section>
 
       <section class="panel tasks-panel">
         <div class="panel-heading tasks-heading">
           <div>
-            <h2>Task List</h2>
+            <p class="section-eyebrow">Work list</p>
+            <h2>Task list</h2>
             <p>Search by project, customer, contact, next action, or notes.</p>
           </div>
 
@@ -257,26 +283,111 @@
       </section>
 
       <section class="panel docs-panel">
-        <div class="panel-heading docs-heading">
-          <div>
-            <h2>Document Workspace</h2>
-            <p>Upload files and search inside readable text files directly in the browser.</p>
+        <div class="panel-heading">
+          <p class="section-eyebrow">Knowledge desk</p>
+          <h2>AI document workspace</h2>
+          <p>Upload files, keep them in this browser, search them locally, or ask AI to read them in simple business English.</p>
+        </div>
+
+        <div class="docs-layout">
+          <div class="docs-main">
+            <label class="upload-card">
+              <span class="upload-title">Add files</span>
+              <span class="upload-copy">Text, PDF, DOCX, XLSX, CSV, and images work best in this browser workspace.</span>
+              <input id="documentUpload" type="file" multiple>
+            </label>
+
+            <div class="document-toolbar">
+              <input id="documentQuery" class="search-input" type="search" placeholder="Search inside uploaded files">
+              <p id="documentSummary" class="document-summary">No uploaded files yet.</p>
+            </div>
+
+            <p id="documentStorageNote" class="storage-note hidden"></p>
+            <div id="documentList" class="document-list" aria-live="polite"></div>
           </div>
 
-          <label class="upload-card">
-            <span class="upload-title">Add files</span>
-            <span class="upload-copy">Supports `.txt`, `.md`, `.csv`, `.json`, `.html`, `.xml`, `.js`, `.ts`, `.css`, `.log`, and similar text files.</span>
-            <input id="documentUpload" type="file" multiple>
-          </label>
-        </div>
+          <aside class="ai-column">
+            <section class="ai-card">
+              <div class="panel-heading compact">
+                <h3>AI reading setup</h3>
+                <p>Use your own OpenAI key for private browser use, or replace the base URL later with your secure backend.</p>
+              </div>
 
-        <div class="document-toolbar">
-          <input id="documentQuery" class="search-input" type="search" placeholder="Search inside uploaded files">
-          <p id="documentSummary" class="document-summary">No uploaded files yet.</p>
-        </div>
+              <label>
+                OpenAI API key
+                <input id="aiApiKey" type="password" autocomplete="off" placeholder="Paste your key for this browser session">
+              </label>
 
-        <p id="documentStorageNote" class="storage-note hidden"></p>
-        <div id="documentList" class="document-list" aria-live="polite"></div>
+              <div class="field-row ai-settings-row">
+                <label>
+                  Model
+                  <select id="aiModel">
+                    <option value="gpt-5.2">gpt-5.2</option>
+                    <option value="gpt-5.1">gpt-5.1</option>
+                    <option value="gpt-4.1" selected>gpt-4.1</option>
+                  </select>
+                </label>
+
+                <label>
+                  Base URL
+                  <input id="aiBaseUrl" type="url" value="https://api.openai.com/v1">
+                </label>
+              </div>
+
+              <label class="checkbox-row compact-check">
+                <input id="rememberAiKey" type="checkbox">
+                Remember this key on this browser
+              </label>
+
+              <div class="helper-actions">
+                <button type="button" id="saveAiSettings" class="secondary-button">Save AI settings</button>
+                <button type="button" id="clearAiSettings" class="ghost-button">Clear key</button>
+              </div>
+
+              <p class="ai-footnote">Private-use only. For a public or team deployment, move the key to a backend proxy.</p>
+            </section>
+
+            <section class="ai-card">
+              <div class="panel-heading compact">
+                <h3>Ask AI about files</h3>
+                <p>Great for summaries, payment terms, delivery dates, missing approvals, risks, and next actions.</p>
+              </div>
+
+              <label>
+                Question for AI
+                <textarea id="aiQuestion" rows="6" placeholder="Summarise these files, list important dates, commercial points, risks, and the next action in simple English."></textarea>
+              </label>
+
+              <div class="helper-actions">
+                <button type="button" id="useSmartPrompt" class="secondary-button">Use smart prompt</button>
+                <button type="button" id="analyseDocuments" class="primary-button">Analyse files</button>
+              </div>
+
+              <p id="aiStatus" class="ai-status">AI is not connected yet.</p>
+
+              <div id="aiAnswerCard" class="ai-answer-card hidden">
+                <p class="ai-answer-label">Latest AI answer</p>
+                <div id="aiAnswer" class="ai-answer"></div>
+                <div id="aiSources" class="ai-sources hidden"></div>
+                <button type="button" id="copyAiAnswer" class="ghost-button">Copy AI answer</button>
+              </div>
+            </section>
+
+            <section class="ai-card ai-tips">
+              <div class="panel-heading compact">
+                <h3>Prompt ideas</h3>
+                <p>Keep the question short when you are busy.</p>
+              </div>
+
+              <ul class="prompt-list">
+                <li>Summarise these files and tell me the next action.</li>
+                <li>Find payment terms, delivery promises, and missing approvals.</li>
+                <li>List all project names, customer names, and due dates.</li>
+                <li>Write a simple email reply based on these files.</li>
+              </ul>
+            </section>
+          </aside>
+        </div>
       </section>
     </main>
   </div>
@@ -322,6 +433,7 @@
     <article class="document-card">
       <div class="document-topline">
         <div>
+          <p class="document-source"></p>
           <h3 class="document-name"></h3>
           <p class="document-meta"></p>
         </div>
@@ -329,6 +441,7 @@
       </div>
 
       <p class="document-preview"></p>
+      <p class="document-ai-summary hidden"></p>
       <p class="document-keywords"></p>
       <pre class="document-snippet hidden"></pre>
 
@@ -339,6 +452,9 @@
     </article>
   </template>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" referrerpolicy="no-referrer"></script>
+  <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
