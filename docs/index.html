@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internal Sales Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy-block">
+        <p class="eyebrow">Internal Sales Workspace</p>
+        <h1>Browser Sales Organiser</h1>
+        <p class="hero-copy">
+          A proper browser workspace for internal sales: track tasks, remember project names, upload files, search what is inside them, and keep simple English ready for email or calls.
+        </p>
+      </div>
+
+      <section class="today-card">
+        <p class="label">Today</p>
+        <h2 id="todayDate"></h2>
+        <p id="todaySummary">No open work yet. Add your first task below.</p>
+      </section>
+    </header>
+
+    <main class="layout">
+      <section class="panel form-panel">
+        <div class="panel-heading">
+          <h2>Add Sales Task</h2>
+          <p>Keep project, customer, and next action visible so nothing lives only in memory.</p>
+        </div>
+
+        <form id="taskForm" class="task-form">
+          <label>
+            Task title
+            <input id="title" name="title" type="text" maxlength="90" placeholder="Optional. Leave blank and the workspace will create a clear title">
+            <span class="field-note">You can leave this empty if you are in a hurry.</span>
+          </label>
+
+          <div class="field-row">
+            <label>
+              Project name
+              <input id="project" name="project" type="text" maxlength="80" placeholder="Generator panel upgrade">
+            </label>
+
+            <label>
+              Customer / company
+              <input id="account" name="account" type="text" maxlength="80" placeholder="ACME Trading">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              Contact person
+              <input id="contact" name="contact" type="text" maxlength="60" placeholder="Sarah Khan">
+            </label>
+
+            <label>
+              Next action
+              <input id="nextAction" name="nextAction" type="text" maxlength="100" placeholder="Call customer and confirm quotation">
+            </label>
+          </div>
+
+          <div class="field-row field-row-3">
+            <label>
+              Activity
+              <select id="activityType" name="activityType">
+                <option value="Follow-up">Follow-up</option>
+                <option value="Quotation">Quotation</option>
+                <option value="New Enquiry">New Enquiry</option>
+                <option value="Order Processing">Order Processing</option>
+                <option value="Payment Chase">Payment Chase</option>
+                <option value="Meeting">Meeting</option>
+              </select>
+            </label>
+
+            <label>
+              Stage
+              <select id="stage" name="stage">
+                <option value="New Lead">New Lead</option>
+                <option value="Quoted">Quoted</option>
+                <option value="Negotiation">Negotiation</option>
+                <option value="Awaiting PO">Awaiting PO</option>
+                <option value="Won">Won</option>
+                <option value="Lost">Lost</option>
+              </select>
+            </label>
+
+            <label>
+              Priority
+              <select id="priority" name="priority">
+                <option value="High">High</option>
+                <option value="Medium" selected>Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="field-row field-row-3">
+            <label>
+              Follow-up date
+              <input id="dueDate" name="dueDate" type="date">
+            </label>
+
+            <label>
+              Last contact date
+              <input id="lastContactDate" name="lastContactDate" type="date">
+            </label>
+
+            <label>
+              Value
+              <input id="value" name="value" type="number" min="0" step="0.01" placeholder="2500">
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label>
+              Status
+              <select id="status" name="status">
+                <option value="Open" selected>Open</option>
+                <option value="Waiting">Waiting</option>
+                <option value="Closed">Closed</option>
+              </select>
+            </label>
+
+            <label class="checkbox-row">
+              <input id="focus" name="focus" type="checkbox">
+              Mark as today's top priority
+            </label>
+          </div>
+
+          <label>
+            Notes
+            <textarea id="details" name="details" rows="4" maxlength="320" placeholder="Customer asked for better delivery date, revised price, and finance approval."></textarea>
+          </label>
+
+          <button type="submit" class="primary-button">Save task</button>
+        </form>
+      </section>
+
+      <section class="panel helper-panel">
+        <div class="panel-heading">
+          <h2>Do This Next</h2>
+          <p id="nextStepReason">The workspace will choose the clearest next task for you.</p>
+        </div>
+
+        <div id="nextStepEmpty" class="helper-empty">
+          Add one task and this box will tell you what to do next.
+        </div>
+
+        <div id="nextStepContent" class="helper-content hidden">
+          <p class="helper-project" id="nextStepProject"></p>
+          <h3 class="helper-title" id="nextStepTitle"></h3>
+          <p class="helper-subtitle" id="nextStepAccount"></p>
+          <p class="helper-line"><strong>Next action:</strong> <span id="nextStepAction"></span></p>
+          <p class="helper-line"><strong>Follow-up:</strong> <span id="nextStepDue"></span></p>
+
+          <div class="draft-block">
+            <label>
+              Simple email draft
+              <textarea id="emailDraft" class="draft-textarea" rows="7" readonly></textarea>
+            </label>
+            <div class="helper-actions">
+              <button type="button" id="copyTopEmail" class="primary-button">Copy email</button>
+              <button type="button" id="copyTopCall" class="secondary-button">Copy call script</button>
+            </div>
+          </div>
+
+          <div class="draft-block">
+            <label>
+              Simple call script
+              <textarea id="callDraft" class="draft-textarea" rows="6" readonly></textarea>
+            </label>
+          </div>
+        </div>
+
+        <div class="note-card">
+          <div class="panel-heading compact">
+            <h3>AI-Ready Note</h3>
+            <p>Text files can be searched inside this browser workspace now. Full AI reading for PDF, DOCX, images, and deeper summaries needs a secure backend connection.</p>
+          </div>
+        </div>
+
+        <div class="notes-card">
+          <div class="panel-heading compact">
+            <h3>Daily Memory Notes</h3>
+            <p>Use this for promises, stock issues, and anything you do not want to forget.</p>
+          </div>
+          <textarea id="notes" rows="8" placeholder="Morning priorities, customer promises, pricing issues, and the things that must not be missed today..."></textarea>
+        </div>
+      </section>
+
+      <section class="panel snapshot-panel">
+        <div class="panel-heading">
+          <h2>Workspace Snapshot</h2>
+          <p>A fast view of workload, urgency, and uploaded material.</p>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card">
+            <span>Open tasks</span>
+            <strong id="openTasks">0</strong>
+          </article>
+          <article class="stat-card">
+            <span>Overdue</span>
+            <strong id="overdueTasks">0</strong>
+          </article>
+          <article class="stat-card">
+            <span>Open value</span>
+            <strong id="quotedValue">0</strong>
+          </article>
+          <article class="stat-card accent">
+            <span>Files stored</span>
+            <strong id="documentCount">0</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel tasks-panel">
+        <div class="panel-heading tasks-heading">
+          <div>
+            <h2>Task List</h2>
+            <p>Search by project, customer, contact, next action, or notes.</p>
+          </div>
+
+          <div class="filters">
+            <input id="searchFilter" class="search-input" type="search" placeholder="Search task, project, customer, next action">
+            <select id="statusFilter" aria-label="Filter by status">
+              <option value="All">All statuses</option>
+              <option value="Open">Open</option>
+              <option value="Waiting">Waiting</option>
+              <option value="Closed">Closed</option>
+            </select>
+            <select id="stageFilter" aria-label="Filter by stage">
+              <option value="All">All stages</option>
+              <option value="New Lead">New Lead</option>
+              <option value="Quoted">Quoted</option>
+              <option value="Negotiation">Negotiation</option>
+              <option value="Awaiting PO">Awaiting PO</option>
+              <option value="Won">Won</option>
+              <option value="Lost">Lost</option>
+            </select>
+            <select id="priorityFilter" aria-label="Filter by priority">
+              <option value="All">All priorities</option>
+              <option value="High">High priority</option>
+              <option value="Medium">Medium priority</option>
+              <option value="Low">Low priority</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="taskList" class="task-list" aria-live="polite"></div>
+      </section>
+
+      <section class="panel docs-panel">
+        <div class="panel-heading docs-heading">
+          <div>
+            <h2>Document Workspace</h2>
+            <p>Upload files and search inside readable text files directly in the browser.</p>
+          </div>
+
+          <label class="upload-card">
+            <span class="upload-title">Add files</span>
+            <span class="upload-copy">Supports `.txt`, `.md`, `.csv`, `.json`, `.html`, `.xml`, `.js`, `.ts`, `.css`, `.log`, and similar text files.</span>
+            <input id="documentUpload" type="file" multiple>
+          </label>
+        </div>
+
+        <div class="document-toolbar">
+          <input id="documentQuery" class="search-input" type="search" placeholder="Search inside uploaded files">
+          <p id="documentSummary" class="document-summary">No uploaded files yet.</p>
+        </div>
+
+        <p id="documentStorageNote" class="storage-note hidden"></p>
+        <div id="documentList" class="document-list" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="taskTemplate">
+    <article class="task-card">
+      <div class="task-topline">
+        <div class="task-main">
+          <p class="task-project hidden"></p>
+          <h3 class="task-title"></h3>
+          <p class="task-account"></p>
+          <p class="task-next-action"></p>
+          <p class="task-details"></p>
+        </div>
+
+        <div class="task-badges">
+          <span class="focus-pill hidden">Top priority</span>
+          <span class="alert-pill hidden">Overdue</span>
+        </div>
+      </div>
+
+      <div class="task-meta">
+        <span class="pill activity-pill"></span>
+        <span class="pill stage-pill"></span>
+        <span class="pill priority-pill"></span>
+        <span class="pill status-pill"></span>
+        <span class="pill due-pill"></span>
+        <span class="pill contact-pill"></span>
+        <span class="pill value-pill"></span>
+      </div>
+
+      <div class="task-actions">
+        <button type="button" class="secondary-button toggle-status">Advance status</button>
+        <button type="button" class="ghost-button toggle-focus">Toggle priority</button>
+        <button type="button" class="ghost-button copy-email">Copy email</button>
+        <button type="button" class="ghost-button copy-call">Copy call</button>
+        <button type="button" class="ghost-button delete-task">Delete</button>
+      </div>
+    </article>
+  </template>
+
+  <template id="documentTemplate">
+    <article class="document-card">
+      <div class="document-topline">
+        <div>
+          <h3 class="document-name"></h3>
+          <p class="document-meta"></p>
+        </div>
+        <span class="document-status"></span>
+      </div>
+
+      <p class="document-preview"></p>
+      <p class="document-keywords"></p>
+      <pre class="document-snippet hidden"></pre>
+
+      <div class="document-actions">
+        <button type="button" class="ghost-button copy-document">Copy summary</button>
+        <button type="button" class="ghost-button delete-document">Delete file</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
