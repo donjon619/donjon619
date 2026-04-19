@@ -1,10 +1,16 @@
 const STATE_STORAGE_KEYS = [
+  "internal-sales-command-center-state-v5",
   "internal-sales-workspace-state-v4",
   "internal-sales-organiser-state-v3",
   "internal-sales-organiser-state-v2",
   "work-organiser-state-v1",
 ];
 const STATE_STORAGE_KEY = STATE_STORAGE_KEYS[0];
+const AI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DB_NAME = "internal-sales-workspace-db";
+const DB_VERSION = 1;
+const BLOB_STORE_NAME = "document-blobs";
+
 const STATUS_ORDER = ["Open", "Waiting", "Closed"];
 const ACTIVITY_TYPES = [
   "Follow-up",
@@ -23,10 +29,12 @@ const STAGES = [
   "Lost",
 ];
 const PRIORITIES = ["High", "Medium", "Low"];
+
 const TEXT_FILE_EXTENSIONS = new Set([
   "txt",
   "md",
   "csv",
+  "tsv",
   "json",
   "html",
   "htm",
@@ -40,8 +48,19 @@ const TEXT_FILE_EXTENSIONS = new Set([
   "yml",
   "yaml",
 ]);
-const MAX_DOCUMENT_CHARACTERS = 120000;
-const MAX_DOCUMENT_COUNT = 20;
+const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "xlsm"]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+
+const MAX_DOCUMENT_CHARACTERS = 140000;
+const MAX_DOCUMENT_COUNT = 24;
+const MAX_PDF_PAGES = 20;
+const MAX_AI_DOCUMENTS = 8;
+const MAX_AI_TOTAL_CHARACTERS = 110000;
+const MAX_AI_TEXT_DOCUMENT_LENGTH = 28000;
+const MAX_AI_BINARY_FILES = 3;
+const MAX_AI_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_AI_PDF_BYTES = 10 * 1024 * 1024;
+
 const STOP_WORDS = new Set([
   "a",
   "an",
@@ -134,9 +153,27 @@ const defaultState = {
   ],
   notes: "Start with overdue work first. After every call, update the project name, next action, and promised date.",
   documents: [],
+  ai: {
+    model: "gpt-4.1",
+    baseUrl: AI_DEFAULT_BASE_URL,
+    rememberKey: false,
+    apiKey: "",
+    lastQuestion: "",
+    lastAnswer: "",
+    lastSources: [],
+    lastAnalysedAt: "",
+  },
 };
 
 const state = loadState();
+const uiState = {
+  aiBusy: false,
+  aiStatusMessage: "",
+  aiStatusTone: "",
+};
+
+let sessionApiKey = "";
+let databasePromise = null;
 
 const taskForm = document.getElementById("taskForm");
 const taskList = document.getElementById("taskList");
@@ -164,6 +201,24 @@ const documentQuery = document.getElementById("documentQuery");
 const documentSummary = document.getElementById("documentSummary");
 const documentStorageNote = document.getElementById("documentStorageNote");
 const documentList = document.getElementById("documentList");
+const todayOpenCount = document.getElementById("todayOpenCount");
+const todayOverdueCount = document.getElementById("todayOverdueCount");
+const todayFileCount = document.getElementById("todayFileCount");
+
+const aiApiKey = document.getElementById("aiApiKey");
+const rememberAiKey = document.getElementById("rememberAiKey");
+const aiModel = document.getElementById("aiModel");
+const aiBaseUrl = document.getElementById("aiBaseUrl");
+const saveAiSettings = document.getElementById("saveAiSettings");
+const clearAiSettings = document.getElementById("clearAiSettings");
+const aiQuestion = document.getElementById("aiQuestion");
+const useSmartPrompt = document.getElementById("useSmartPrompt");
+const analyseDocuments = document.getElementById("analyseDocuments");
+const aiStatus = document.getElementById("aiStatus");
+const aiAnswerCard = document.getElementById("aiAnswerCard");
+const aiAnswer = document.getElementById("aiAnswer");
+const aiSources = document.getElementById("aiSources");
+const copyAiAnswer = document.getElementById("copyAiAnswer");
 
 const statElements = {
   open: document.getElementById("openTasks"),
@@ -178,6 +233,8 @@ const documentTemplate = document.getElementById("documentTemplate");
 initialise();
 
 function initialise() {
+  configureLibraries();
+
   todayDate.textContent = new Intl.DateTimeFormat(undefined, {
     weekday: "long",
     month: "long",
@@ -185,6 +242,14 @@ function initialise() {
   }).format(new Date());
 
   notes.value = state.notes;
+  aiModel.value = state.ai.model;
+  aiBaseUrl.value = state.ai.baseUrl;
+  rememberAiKey.checked = state.ai.rememberKey;
+  aiQuestion.value = state.ai.lastQuestion;
+
+  if (state.ai.rememberKey && state.ai.apiKey) {
+    aiApiKey.value = state.ai.apiKey;
+  }
 
   taskForm.addEventListener("submit", handleTaskSubmit);
   notes.addEventListener("input", handleNotesChange);
@@ -196,8 +261,54 @@ function initialise() {
   documentUpload.addEventListener("change", handleDocumentUpload);
   copyTopEmail.addEventListener("click", () => copyText(copyTopEmail, emailDraft.value));
   copyTopCall.addEventListener("click", () => copyText(copyTopCall, callDraft.value));
+  saveAiSettings.addEventListener("click", handleAiSettingsSave);
+  clearAiSettings.addEventListener("click", handleAiSettingsClear);
+  useSmartPrompt.addEventListener("click", handleUseSmartPrompt);
+  analyseDocuments.addEventListener("click", handleDocumentAnalysis);
+  copyAiAnswer.addEventListener("click", () => copyText(copyAiAnswer, state.ai.lastAnswer));
 
   render();
+  syncStoredDocumentAvailability();
+}
+
+function configureLibraries() {
+  if (window.pdfjsLib) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+}
+
+async function syncStoredDocumentAvailability() {
+  if (!supportsIndexedDb()) {
+    return;
+  }
+
+  let changed = false;
+
+  await Promise.all(
+    state.documents.map(async (documentRecord) => {
+      try {
+        const blob = await getDocumentBlob(documentRecord.id);
+        const blobStored = Boolean(blob);
+        if (documentRecord.blobStored !== blobStored) {
+          documentRecord.blobStored = blobStored;
+          changed = true;
+        }
+      } catch {
+        if (documentRecord.blobStored) {
+          documentRecord.blobStored = false;
+          changed = true;
+        }
+      }
+    })
+  );
+
+  if (changed) {
+    persist();
+  }
+
+  renderDocuments();
+  renderAiPanel();
 }
 
 function handleTaskSubmit(event) {
@@ -239,24 +350,158 @@ function handleNotesChange(event) {
 }
 
 async function handleDocumentUpload(event) {
-  const files = Array.from(event.target.files || []);
+  const incomingFiles = Array.from(event.target.files || []);
 
-  if (files.length === 0) {
+  if (incomingFiles.length === 0) {
     return;
   }
 
-  documentStorageNote.classList.add("hidden");
-  documentStorageNote.textContent = "";
+  const availableSlots = Math.max(0, MAX_DOCUMENT_COUNT - state.documents.length);
+  const files = incomingFiles.slice(0, availableSlots);
+
+  if (availableSlots === 0) {
+    state.storageMessage = `This browser workspace keeps up to ${MAX_DOCUMENT_COUNT} files. Delete an old file before adding a new one.`;
+    renderDocuments();
+    event.target.value = "";
+    return;
+  }
+
+  state.storageMessage = "";
 
   for (const file of files) {
-    const documentRecord = await buildDocumentRecord(file);
+    const documentId = createItemId("document");
+    const blobStored = await saveDocumentBlob(documentId, file);
+    const documentRecord = await buildDocumentRecord(file, documentId, blobStored);
     state.documents.unshift(documentRecord);
   }
 
+  if (incomingFiles.length > files.length) {
+    state.storageMessage = `Only ${MAX_DOCUMENT_COUNT} files can be kept in this browser workspace at one time.`;
+  }
+
+  const overflowDocuments = state.documents.slice(MAX_DOCUMENT_COUNT);
   state.documents = state.documents.slice(0, MAX_DOCUMENT_COUNT);
-  documentUpload.value = "";
+  await Promise.all(overflowDocuments.map((documentRecord) => deleteDocumentBlob(documentRecord.id)));
+
+  event.target.value = "";
   persist();
   render();
+}
+
+function handleAiSettingsSave() {
+  const typedKey = aiApiKey.value.trim();
+  const effectiveKey = typedKey || getConfiguredApiKey();
+
+  state.ai.model = aiModel.value;
+  state.ai.baseUrl = normaliseBaseUrl(aiBaseUrl.value);
+  state.ai.rememberKey = rememberAiKey.checked;
+
+  if (state.ai.rememberKey) {
+    state.ai.apiKey = effectiveKey;
+    sessionApiKey = "";
+    aiApiKey.value = state.ai.apiKey;
+  } else {
+    sessionApiKey = effectiveKey;
+    state.ai.apiKey = "";
+  }
+
+  persist();
+  setAiUiStatus(
+    effectiveKey
+      ? "AI settings saved. You can ask AI about the uploaded files now."
+      : "Model and base URL saved. Add your OpenAI key when you want live AI reading.",
+    effectiveKey ? "success" : ""
+  );
+  renderAiPanel();
+}
+
+function handleAiSettingsClear() {
+  sessionApiKey = "";
+  state.ai.apiKey = "";
+  state.ai.rememberKey = false;
+  rememberAiKey.checked = false;
+  aiApiKey.value = "";
+  persist();
+  setAiUiStatus("Stored API key removed from this browser workspace.", "success");
+  renderAiPanel();
+}
+
+function handleUseSmartPrompt() {
+  aiQuestion.value = buildDefaultAiQuestion();
+}
+
+async function handleDocumentAnalysis() {
+  const documents = getDocumentsForAi();
+
+  if (documents.length === 0) {
+    setAiUiStatus("Upload at least one file first. Text, PDF, DOCX, XLSX, CSV, and images work best.", "error");
+    renderAiPanel();
+    return;
+  }
+
+  const apiKey = getConfiguredApiKey();
+  if (!apiKey) {
+    setAiUiStatus("Add your OpenAI key first, then click Analyse files.", "error");
+    renderAiPanel();
+    return;
+  }
+
+  const question = aiQuestion.value.trim() || buildDefaultAiQuestion();
+
+  uiState.aiBusy = true;
+  setAiUiStatus("Preparing your files for AI reading...", "working");
+  renderAiPanel();
+
+  try {
+    const request = await buildAiRequest(question, documents);
+
+    if (request.usedDocuments.length === 0) {
+      throw new Error("None of the current files were ready for AI. Re-upload older PDF or image files if needed.");
+    }
+
+    setAiUiStatus(
+      `Reading ${request.usedDocuments.length} file${request.usedDocuments.length === 1 ? "" : "s"} with ${state.ai.model}...`,
+      "working"
+    );
+    renderAiPanel();
+
+    const response = await callResponsesApi(apiKey, request.payload);
+    const answer = extractResponseText(response);
+
+    if (!answer) {
+      throw new Error("The AI response was empty. Try a shorter question or fewer large files.");
+    }
+
+    const analysedAt = new Date().toISOString();
+    state.ai.lastQuestion = question;
+    state.ai.lastAnswer = answer.trim();
+    state.ai.lastSources = request.usedDocuments;
+    state.ai.lastAnalysedAt = analysedAt;
+
+    if (request.usedDocumentIds.length === 1) {
+      const targetId = request.usedDocumentIds[0];
+      const documentRecord = state.documents.find((item) => item.id === targetId);
+      if (documentRecord) {
+        documentRecord.aiSummary = shortenText(answer.replace(/\s+/g, " ").trim(), 280);
+      }
+    }
+
+    state.documents.forEach((documentRecord) => {
+      if (request.usedDocumentIds.includes(documentRecord.id)) {
+        documentRecord.lastAiAt = analysedAt;
+      }
+    });
+
+    persist();
+    setAiUiStatus("AI analysis finished. Review the answer and copy anything you want to use.", "success");
+    render();
+  } catch (error) {
+    setAiUiStatus(normaliseAiError(error), "error");
+    renderAiPanel();
+  } finally {
+    uiState.aiBusy = false;
+    renderAiPanel();
+  }
 }
 
 function render() {
@@ -264,6 +509,7 @@ function render() {
   renderNextStep();
   renderTasks();
   renderDocuments();
+  renderAiPanel();
 }
 
 function renderSummary() {
@@ -277,6 +523,10 @@ function renderSummary() {
   statElements.overdue.textContent = String(overdueCount);
   statElements.quotedValue.textContent = formatCurrency(openValue);
   statElements.documents.textContent = String(state.documents.length);
+
+  todayOpenCount.textContent = String(activeTasks.length);
+  todayOverdueCount.textContent = String(overdueCount);
+  todayFileCount.textContent = String(state.documents.length);
 
   if (overdueCount > 0 && bestTask) {
     todaySummary.textContent = `${overdueCount} overdue follow-up${overdueCount === 1 ? "" : "s"}. Start with ${buildShortTaskName(bestTask)}.`;
@@ -368,11 +618,11 @@ function renderTasks() {
 
     taskNode.querySelector(".toggle-status").addEventListener("click", () => advanceTaskStatus(task.id));
     taskNode.querySelector(".toggle-focus").addEventListener("click", () => toggleTaskFocus(task.id));
-    taskNode.querySelector(".copy-email").addEventListener("click", (event) => {
-      copyText(event.currentTarget, buildEmailDraft(task));
+    taskNode.querySelector(".copy-email").addEventListener("click", (clickEvent) => {
+      copyText(clickEvent.currentTarget, buildEmailDraft(task));
     });
-    taskNode.querySelector(".copy-call").addEventListener("click", (event) => {
-      copyText(event.currentTarget, buildCallScript(task));
+    taskNode.querySelector(".copy-call").addEventListener("click", (clickEvent) => {
+      copyText(clickEvent.currentTarget, buildCallScript(task));
     });
     taskNode.querySelector(".delete-task").addEventListener("click", () => deleteTask(task.id));
 
@@ -399,7 +649,7 @@ function renderDocuments() {
 
   if (documents.length === 0) {
     const message = state.documents.length === 0
-      ? "No uploaded files yet. Add a text file to search inside it."
+      ? "No uploaded files yet. Add a text file, PDF, DOCX, spreadsheet, or image."
       : "No uploaded files match this search.";
     documentList.append(createEmptyState(message));
     return;
@@ -409,10 +659,17 @@ function renderDocuments() {
 
   documents.forEach((documentRecord) => {
     const documentNode = documentTemplate.content.firstElementChild.cloneNode(true);
+    documentNode.querySelector(".document-source").textContent = buildDocumentSourceLabel(documentRecord);
     documentNode.querySelector(".document-name").textContent = documentRecord.name;
     documentNode.querySelector(".document-meta").textContent = buildDocumentMetaLine(documentRecord);
     documentNode.querySelector(".document-preview").textContent = documentRecord.summary;
-    documentNode.querySelector(".document-keywords").textContent = buildKeywordLine(documentRecord.keywords);
+    documentNode.querySelector(".document-keywords").textContent = buildKeywordLine(documentRecord.keywords, documentRecord);
+
+    const aiSummaryNode = documentNode.querySelector(".document-ai-summary");
+    if (documentRecord.aiSummary) {
+      aiSummaryNode.textContent = `AI note: ${documentRecord.aiSummary}`;
+      aiSummaryNode.classList.remove("hidden");
+    }
 
     const statusNode = documentNode.querySelector(".document-status");
     statusNode.textContent = buildDocumentStatus(documentRecord);
@@ -425,8 +682,8 @@ function renderDocuments() {
       snippetNode.classList.remove("hidden");
     }
 
-    documentNode.querySelector(".copy-document").addEventListener("click", (event) => {
-      copyText(event.currentTarget, buildDocumentCopyText(documentRecord, query));
+    documentNode.querySelector(".copy-document").addEventListener("click", (clickEvent) => {
+      copyText(clickEvent.currentTarget, buildDocumentCopyText(documentRecord, query));
     });
     documentNode.querySelector(".delete-document").addEventListener("click", () => deleteDocument(documentRecord.id));
 
@@ -434,6 +691,42 @@ function renderDocuments() {
   });
 
   documentList.append(fragment);
+}
+
+function renderAiPanel() {
+  const hasApiKey = Boolean(getConfiguredApiKey());
+
+  aiStatus.dataset.tone = uiState.aiStatusTone;
+  if (uiState.aiBusy) {
+    aiStatus.textContent = uiState.aiStatusMessage || "AI is reading your files...";
+  } else if (uiState.aiStatusMessage) {
+    aiStatus.textContent = uiState.aiStatusMessage;
+  } else if (hasApiKey) {
+    aiStatus.textContent = `AI is ready with ${state.ai.model}. Upload files and click Analyse files.`;
+  } else {
+    aiStatus.textContent = "AI is not connected yet. Paste your OpenAI key to turn on live file reading.";
+  }
+
+  aiAnswer.textContent = state.ai.lastAnswer || "";
+
+  if (state.ai.lastAnswer) {
+    aiAnswerCard.classList.remove("hidden");
+  } else {
+    aiAnswerCard.classList.add("hidden");
+  }
+
+  aiSources.innerHTML = "";
+  if (Array.isArray(state.ai.lastSources) && state.ai.lastSources.length > 0) {
+    state.ai.lastSources.forEach((sourceName) => {
+      const chip = document.createElement("span");
+      chip.className = "source-chip";
+      chip.textContent = sourceName;
+      aiSources.append(chip);
+    });
+    aiSources.classList.remove("hidden");
+  } else {
+    aiSources.classList.add("hidden");
+  }
 }
 
 function getFilteredTasks() {
@@ -476,6 +769,7 @@ function getFilteredDocuments() {
         documentRecord.name,
         documentRecord.summary,
         documentRecord.text,
+        documentRecord.aiSummary,
         documentRecord.keywords.join(" "),
       ]
         .join(" ")
@@ -483,6 +777,13 @@ function getFilteredDocuments() {
         .includes(query);
     })
     .sort(compareDocuments);
+}
+
+function getDocumentsForAi() {
+  return [...state.documents]
+    .filter((documentRecord) => isAiReadyDocument(documentRecord))
+    .sort(compareDocuments)
+    .slice(0, MAX_AI_DOCUMENTS);
 }
 
 function getActiveTasks() {
@@ -531,11 +832,11 @@ function deleteTask(taskId) {
   render();
 }
 
-function deleteDocument(documentId) {
+async function deleteDocument(documentId) {
   state.documents = state.documents.filter((documentRecord) => documentRecord.id !== documentId);
+  await deleteDocumentBlob(documentId);
   persist();
-  renderDocuments();
-  renderSummary();
+  render();
 }
 
 function loadState() {
@@ -565,7 +866,27 @@ function normaliseState(rawState) {
     tasks,
     notes: typeof rawState.notes === "string" ? rawState.notes : defaultState.notes,
     documents,
+    ai: normaliseAiState(rawState.ai),
     storageMessage: "",
+  };
+}
+
+function normaliseAiState(rawAiState) {
+  if (!rawAiState || typeof rawAiState !== "object") {
+    return cloneValue(defaultState.ai);
+  }
+
+  return {
+    model: cleanString(rawAiState.model) || defaultState.ai.model,
+    baseUrl: normaliseBaseUrl(rawAiState.baseUrl || defaultState.ai.baseUrl),
+    rememberKey: Boolean(rawAiState.rememberKey),
+    apiKey: cleanString(rawAiState.apiKey),
+    lastQuestion: cleanString(rawAiState.lastQuestion),
+    lastAnswer: cleanString(rawAiState.lastAnswer),
+    lastSources: Array.isArray(rawAiState.lastSources)
+      ? rawAiState.lastSources.map(cleanString).filter(Boolean)
+      : [],
+    lastAnalysedAt: cleanString(rawAiState.lastAnalysedAt),
   };
 }
 
@@ -621,6 +942,10 @@ function normaliseDocument(rawDocument) {
     text: cleanString(rawDocument.text),
     summary: cleanString(rawDocument.summary),
     keywords: Array.isArray(rawDocument.keywords) ? rawDocument.keywords.map(cleanString).filter(Boolean) : [],
+    extractor: cleanString(rawDocument.extractor) || "Stored file",
+    aiSummary: cleanString(rawDocument.aiSummary),
+    lastAiAt: cleanString(rawDocument.lastAiAt),
+    blobStored: Boolean(rawDocument.blobStored),
   };
 }
 
@@ -629,6 +954,10 @@ function persist() {
     tasks: state.tasks,
     notes: state.notes,
     documents: state.documents.slice(0, MAX_DOCUMENT_COUNT),
+    ai: {
+      ...state.ai,
+      apiKey: state.ai.rememberKey ? state.ai.apiKey : "",
+    },
   };
 
   state.storageMessage = "";
@@ -649,6 +978,7 @@ function persist() {
             tasks: state.tasks,
             notes: state.notes,
             documents: trimmedDocuments,
+            ai: snapshot.ai,
           })
         );
         state.storageMessage = "Browser storage was full, so the oldest uploaded files were removed.";
@@ -662,50 +992,94 @@ function persist() {
   }
 }
 
-async function buildDocumentRecord(file) {
+async function buildDocumentRecord(file, documentId, blobStored) {
   const extension = getFileExtension(file.name);
-  const readable = isReadableTextFile(file, extension);
   const baseRecord = {
-    id: createItemId("document"),
+    id: documentId,
     name: file.name,
-    type: file.type || "",
+    type: file.type || inferMimeType(extension),
     extension,
     size: file.size || 0,
     uploadedAt: new Date().toISOString(),
-    readable,
+    readable: false,
     partial: false,
     text: "",
     summary: "",
     keywords: [],
+    extractor: buildDocumentSourceLabel({ extension, type: file.type || "", readable: false }),
+    aiSummary: "",
+    lastAiAt: "",
+    blobStored,
   };
 
-  if (!readable) {
-    return {
-      ...baseRecord,
-      summary: "File stored by name only. To read inside PDF, DOCX, image, or spreadsheet files, this browser version needs a parser or AI backend.",
-    };
-  }
-
   try {
-    const rawText = await readFileAsText(file);
-    const cleanedText = cleanDocumentText(rawText);
-    const partial = cleanedText.length > MAX_DOCUMENT_CHARACTERS;
-    const text = cleanedText.slice(0, MAX_DOCUMENT_CHARACTERS);
+    if (isReadableTextFile(file, extension)) {
+      const rawText = await readFileAsText(file);
+      return buildReadableDocument(baseRecord, rawText, "Text");
+    }
+
+    if (isPdfExtension(extension)) {
+      const rawText = await readPdfText(file);
+      return buildReadableDocument(baseRecord, rawText, "PDF");
+    }
+
+    if (isDocxExtension(extension)) {
+      const rawText = await readDocxText(file);
+      return buildReadableDocument(baseRecord, rawText, "DOCX");
+    }
+
+    if (isSpreadsheetExtension(extension)) {
+      const rawText = await readSpreadsheetText(file);
+      return buildReadableDocument(baseRecord, rawText, "Spreadsheet");
+    }
+
+    if (isImageFile(file, extension)) {
+      return {
+        ...baseRecord,
+        summary: blobStored
+          ? "Image stored for AI vision. Ask AI to extract visible text, labels, numbers, or screenshot details."
+          : "Image was added, but this browser could not keep the original file for AI vision. Re-upload it when needed.",
+        extractor: "Image",
+      };
+    }
 
     return {
       ...baseRecord,
-      partial,
-      text,
-      summary: buildDocumentPreview(text, partial),
-      keywords: extractKeywords(text),
+      summary: buildUnsupportedDocumentSummary(extension, blobStored),
+      extractor: extension ? extension.toUpperCase() : "Stored file",
     };
-  } catch {
+  } catch (error) {
     return {
       ...baseRecord,
-      readable: false,
-      summary: "This file could not be read in the browser. Try a plain text version or add backend processing later.",
+      summary: buildFailedDocumentSummary(extension, blobStored, error),
+      extractor: buildDocumentSourceLabel({ extension, type: file.type || "", readable: false }),
     };
   }
+}
+
+function buildReadableDocument(baseRecord, rawText, extractor) {
+  const cleanedText = cleanDocumentText(rawText);
+
+  if (!cleanedText) {
+    return {
+      ...baseRecord,
+      extractor,
+      summary: `${extractor} file stored, but the browser could not find enough readable text.`,
+    };
+  }
+
+  const partial = cleanedText.length > MAX_DOCUMENT_CHARACTERS;
+  const text = cleanedText.slice(0, MAX_DOCUMENT_CHARACTERS);
+
+  return {
+    ...baseRecord,
+    readable: true,
+    partial,
+    text,
+    summary: buildDocumentPreview(text, partial),
+    keywords: extractKeywords(text),
+    extractor,
+  };
 }
 
 function buildAccountLine(task) {
@@ -896,62 +1270,103 @@ function buildDocumentPreview(text, partial) {
   }
 
   if (partial) {
-    preview += " Only the first part of this file was stored to keep the browser fast.";
+    preview += " Only the first part of this file was kept to keep the browser fast.";
   }
 
   return preview;
 }
 
 function buildDocumentSummaryLine(filteredCount, totalCount, query) {
+  const aiReadyCount = state.documents.filter(isAiReadyDocument).length;
+
   if (totalCount === 0) {
     return "No uploaded files yet.";
   }
 
   if (!query) {
-    return `${totalCount} file${totalCount === 1 ? "" : "s"} stored in the browser.`;
+    return `${totalCount} file${totalCount === 1 ? "" : "s"} in this browser. ${aiReadyCount} ready for AI.`;
   }
 
-  return `${filteredCount} match${filteredCount === 1 ? "" : "es"} found in ${totalCount} file${totalCount === 1 ? "" : "s"}.`;
+  return `${filteredCount} match${filteredCount === 1 ? "" : "es"} found. ${aiReadyCount} file${aiReadyCount === 1 ? "" : "s"} ready for AI.`;
 }
 
 function buildDocumentMetaLine(documentRecord) {
-  return `${formatFileSize(documentRecord.size)} | ${formatDateTime(documentRecord.uploadedAt)}`;
+  return `${formatFileSize(documentRecord.size)} | ${formatDateTime(documentRecord.uploadedAt)}${documentRecord.lastAiAt ? ` | AI read ${formatDateTime(documentRecord.lastAiAt)}` : ""}`;
+}
+
+function buildDocumentSourceLabel(documentRecord) {
+  if (documentRecord.extractor) {
+    return documentRecord.extractor;
+  }
+
+  if (isPdfExtension(documentRecord.extension)) {
+    return "PDF";
+  }
+
+  if (isDocxExtension(documentRecord.extension)) {
+    return "DOCX";
+  }
+
+  if (isSpreadsheetExtension(documentRecord.extension)) {
+    return "Spreadsheet";
+  }
+
+  if (isImageExtension(documentRecord.extension)) {
+    return "Image";
+  }
+
+  return documentRecord.extension ? documentRecord.extension.toUpperCase() : "Stored file";
 }
 
 function buildDocumentStatus(documentRecord) {
-  if (!documentRecord.readable) {
-    return "Metadata only";
+  if (documentRecord.readable && documentRecord.blobStored) {
+    return documentRecord.partial ? "Ready (partial)" : "Ready";
   }
 
-  if (documentRecord.partial) {
-    return "Readable (partial)";
+  if (documentRecord.readable) {
+    return documentRecord.partial ? "Text only (partial)" : "Text only";
   }
 
-  return "Readable";
+  if (documentRecord.blobStored) {
+    return "Stored for AI";
+  }
+
+  return "Needs re-upload";
 }
 
 function getDocumentStatusClass(documentRecord) {
-  if (!documentRecord.readable) {
-    return "metadata";
+  if (documentRecord.readable && documentRecord.blobStored) {
+    return documentRecord.partial ? "partial" : "ready";
   }
 
-  return documentRecord.partial ? "partial" : "readable";
+  if (documentRecord.readable || documentRecord.blobStored) {
+    return "waiting";
+  }
+
+  return "missing";
 }
 
-function buildKeywordLine(keywords) {
-  return keywords.length > 0
-    ? `Keywords: ${keywords.join(", ")}`
-    : "Keywords: not enough text yet";
+function buildKeywordLine(keywords, documentRecord) {
+  if (keywords.length > 0) {
+    return `Keywords: ${keywords.join(", ")}`;
+  }
+
+  if (documentRecord.aiSummary) {
+    return "Keywords: AI note available";
+  }
+
+  return "Keywords: add a search term or ask AI for a summary";
 }
 
 function buildDocumentSnippet(documentRecord, rawQuery) {
   const query = rawQuery.trim().toLowerCase();
+  const haystackText = [documentRecord.text, documentRecord.aiSummary].join(" ");
 
-  if (!query || !documentRecord.text) {
+  if (!query || !haystackText) {
     return "";
   }
 
-  const haystack = documentRecord.text.toLowerCase();
+  const haystack = haystackText.toLowerCase();
   const matchIndex = haystack.indexOf(query);
 
   if (matchIndex === -1) {
@@ -959,10 +1374,10 @@ function buildDocumentSnippet(documentRecord, rawQuery) {
   }
 
   const start = Math.max(0, matchIndex - 110);
-  const end = Math.min(documentRecord.text.length, matchIndex + query.length + 150);
+  const end = Math.min(haystackText.length, matchIndex + query.length + 150);
   const prefix = start > 0 ? "..." : "";
-  const suffix = end < documentRecord.text.length ? "..." : "";
-  return `${prefix}${documentRecord.text.slice(start, end).trim()}${suffix}`;
+  const suffix = end < haystackText.length ? "..." : "";
+  return `${prefix}${haystackText.slice(start, end).trim()}${suffix}`;
 }
 
 function buildDocumentCopyText(documentRecord, query) {
@@ -971,6 +1386,11 @@ function buildDocumentCopyText(documentRecord, query) {
     `Status: ${buildDocumentStatus(documentRecord)}`,
     `Summary: ${documentRecord.summary}`,
   ];
+
+  if (documentRecord.aiSummary) {
+    parts.push(`AI note: ${documentRecord.aiSummary}`);
+  }
+
   const snippet = buildDocumentSnippet(documentRecord, query);
 
   if (snippet) {
@@ -978,6 +1398,201 @@ function buildDocumentCopyText(documentRecord, query) {
   }
 
   return parts.join("\n");
+}
+
+function buildDefaultAiQuestion() {
+  return "Review these files like an internal sales coordinator. Give me: 1) a short summary 2) important company, contact, or project names 3) dates, deadlines, and follow-up promises 4) commercial details like value, quantity, delivery, or payment terms 5) risks or missing information 6) the best next action in simple English.";
+}
+
+async function buildAiRequest(question, documents) {
+  const content = [
+    {
+      type: "input_text",
+      text: buildAiInstruction(question, documents),
+    },
+  ];
+
+  const usedDocuments = [];
+  const usedDocumentIds = [];
+  let remainingCharacters = MAX_AI_TOTAL_CHARACTERS;
+  let binaryFileCount = 0;
+
+  for (const documentRecord of documents) {
+    const blob = documentRecord.blobStored ? await getDocumentBlob(documentRecord.id) : null;
+
+    if (isImageExtension(documentRecord.extension) && blob && blob.size <= MAX_AI_IMAGE_BYTES && binaryFileCount < MAX_AI_BINARY_FILES) {
+      content.push({
+        type: "input_text",
+        text: `Image file: ${documentRecord.name}. Extract any visible text, labels, numbers, signatures, or screenshot details before answering.`,
+      });
+      content.push({
+        type: "input_image",
+        image_url: await blobToDataUrl(blob),
+        detail: "high",
+      });
+      usedDocuments.push(documentRecord.name);
+      usedDocumentIds.push(documentRecord.id);
+      binaryFileCount += 1;
+      continue;
+    }
+
+    if (isPdfExtension(documentRecord.extension) && blob && blob.size <= MAX_AI_PDF_BYTES && binaryFileCount < MAX_AI_BINARY_FILES) {
+      content.push({
+        type: "input_text",
+        text: `PDF file: ${documentRecord.name}. Use the document contents to answer the request.`,
+      });
+      content.push({
+        type: "input_file",
+        filename: documentRecord.name,
+        file_data: await blobToBase64(blob),
+      });
+      usedDocuments.push(documentRecord.name);
+      usedDocumentIds.push(documentRecord.id);
+      binaryFileCount += 1;
+      continue;
+    }
+
+    const textInput = buildDocumentTextForAi(documentRecord, remainingCharacters);
+
+    if (textInput) {
+      content.push({
+        type: "input_text",
+        text: textInput.text,
+      });
+      remainingCharacters -= textInput.length;
+      usedDocuments.push(documentRecord.name);
+      usedDocumentIds.push(documentRecord.id);
+    }
+  }
+
+  return {
+    usedDocuments,
+    usedDocumentIds,
+    payload: {
+      model: state.ai.model,
+      input: [
+        {
+          role: "user",
+          content,
+        },
+      ],
+      max_output_tokens: 1200,
+    },
+  };
+}
+
+function buildAiInstruction(question, documents) {
+  const filenames = documents.map((documentRecord) => documentRecord.name).join(", ");
+
+  return [
+    "You are helping an internal sales coordinator.",
+    "Read the uploaded files and answer in simple business English.",
+    "Use short sections with these headings:",
+    "Summary",
+    "Important details",
+    "Risks or missing information",
+    "Recommended next action",
+    "When you mention a fact, include the filename in brackets if possible.",
+    `Files available: ${filenames || "none"}`,
+    `User question: ${question}`,
+  ].join("\n");
+}
+
+function buildDocumentTextForAi(documentRecord, remainingCharacters) {
+  const sourceText = documentRecord.text || documentRecord.aiSummary || documentRecord.summary;
+  if (!sourceText) {
+    return null;
+  }
+
+  const header = `File: ${documentRecord.name}\nType: ${buildDocumentSourceLabel(documentRecord)}\n\n`;
+  const budget = Math.min(MAX_AI_TEXT_DOCUMENT_LENGTH, remainingCharacters - header.length);
+
+  if (budget < 500) {
+    return null;
+  }
+
+  const excerpt = shortenText(sourceText, budget);
+  return {
+    text: `${header}${excerpt}`,
+    length: header.length + excerpt.length,
+  };
+}
+
+async function callResponsesApi(apiKey, payload) {
+  const response = await fetch(`${normaliseBaseUrl(state.ai.baseUrl)}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Request failed with status ${response.status}.`;
+
+    try {
+      const errorPayload = await response.json();
+      if (errorPayload && errorPayload.error && errorPayload.error.message) {
+        errorMessage = errorPayload.error.message;
+      }
+    } catch {
+      try {
+        errorMessage = await response.text();
+      } catch {
+        errorMessage = `Request failed with status ${response.status}.`;
+      }
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+function extractResponseText(response) {
+  if (response && typeof response.output_text === "string" && response.output_text.trim()) {
+    return response.output_text.trim();
+  }
+
+  if (!response || !Array.isArray(response.output)) {
+    return "";
+  }
+
+  return response.output
+    .filter((item) => item.type === "message" && Array.isArray(item.content))
+    .flatMap((item) => item.content)
+    .filter((contentItem) => contentItem.type === "output_text" && typeof contentItem.text === "string")
+    .map((contentItem) => contentItem.text)
+    .join("\n\n")
+    .trim();
+}
+
+function normaliseAiError(error) {
+  const fallbackMessage = "AI reading failed. Check the key, try fewer large files, or use a secure backend base URL.";
+  const message = error instanceof Error ? error.message : "";
+
+  if (!message) {
+    return fallbackMessage;
+  }
+
+  if (message.includes("Failed to fetch")) {
+    return "The browser could not reach the AI endpoint. Check your internet connection, CORS policy, or use a backend proxy URL.";
+  }
+
+  return message;
+}
+
+function setAiUiStatus(message, tone) {
+  uiState.aiStatusMessage = message;
+  uiState.aiStatusTone = tone || "";
+}
+
+function getConfiguredApiKey() {
+  return (
+    aiApiKey.value.trim() ||
+    (state.ai.rememberKey ? state.ai.apiKey : sessionApiKey || state.ai.apiKey)
+  ).trim();
 }
 
 function compareTasks(leftTask, rightTask) {
@@ -1112,9 +1727,55 @@ function isReadableTextFile(file, extension) {
   return TEXT_FILE_EXTENSIONS.has(extension);
 }
 
+function isPdfExtension(extension) {
+  return extension === "pdf";
+}
+
+function isDocxExtension(extension) {
+  return extension === "docx";
+}
+
+function isSpreadsheetExtension(extension) {
+  return SPREADSHEET_EXTENSIONS.has(extension);
+}
+
+function isImageExtension(extension) {
+  return IMAGE_EXTENSIONS.has(extension);
+}
+
+function isImageFile(file, extension) {
+  return file.type.startsWith("image/") || isImageExtension(extension);
+}
+
+function isAiReadyDocument(documentRecord) {
+  return Boolean(documentRecord.text || documentRecord.blobStored);
+}
+
 function getFileExtension(filename) {
   const parts = filename.toLowerCase().split(".");
   return parts.length > 1 ? parts.pop() : "";
+}
+
+function inferMimeType(extension) {
+  switch (extension) {
+    case "pdf":
+      return "application/pdf";
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "csv":
+      return "text/csv";
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    default:
+      return "";
+  }
 }
 
 function readFileAsText(file) {
@@ -1126,10 +1787,67 @@ function readFileAsText(file) {
   });
 }
 
+async function readPdfText(file) {
+  if (!window.pdfjsLib) {
+    throw new Error("The PDF reader library could not be loaded.");
+  }
+
+  const fileBuffer = await file.arrayBuffer();
+  const loadingTask = window.pdfjsLib.getDocument({ data: new Uint8Array(fileBuffer) });
+  const pdfDocument = await loadingTask.promise;
+  const pageCount = Math.min(pdfDocument.numPages, MAX_PDF_PAGES);
+  const pages = [];
+
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const page = await pdfDocument.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (pageText) {
+      pages.push(`Page ${pageNumber}\n${pageText}`);
+    }
+  }
+
+  if (pdfDocument.numPages > MAX_PDF_PAGES) {
+    pages.push(`Only the first ${MAX_PDF_PAGES} pages were extracted in the browser.`);
+  }
+
+  return pages.join("\n\n");
+}
+
+async function readDocxText(file) {
+  if (!window.mammoth) {
+    throw new Error("The DOCX reader library could not be loaded.");
+  }
+
+  const result = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+  return result.value || "";
+}
+
+async function readSpreadsheetText(file) {
+  if (!window.XLSX) {
+    throw new Error("The spreadsheet reader library could not be loaded.");
+  }
+
+  const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const textParts = workbook.SheetNames.slice(0, 10).map((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    const csv = window.XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+    return `Sheet: ${sheetName}\n${csv}`;
+  });
+
+  return textParts.join("\n\n");
+}
+
 function cleanDocumentText(rawText) {
   return rawText
     .replace(/\r/g, "")
     .replace(/\u0000/g, " ")
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -1264,6 +1982,11 @@ function cleanDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : "";
 }
 
+function normaliseBaseUrl(value) {
+  const cleaned = cleanString(value) || AI_DEFAULT_BASE_URL;
+  return cleaned.replace(/\/+$/, "");
+}
+
 function createItemId(prefix) {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
     return `${prefix}-${window.crypto.randomUUID()}`;
@@ -1300,4 +2023,123 @@ function todayMinusDaysString(days) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function buildUnsupportedDocumentSummary(extension, blobStored) {
+  if (blobStored) {
+    return extension
+      ? `${extension.toUpperCase()} file stored. This version does not extract that file type in-browser yet, but you can keep it attached for a future backend or parser upgrade.`
+      : "File stored. This version does not extract that file type in-browser yet, but you can keep it attached for a future backend or parser upgrade.";
+  }
+
+  return "File metadata was added, but the browser could not keep the original file bytes. Re-upload it when you want AI to inspect it.";
+}
+
+function buildFailedDocumentSummary(extension, blobStored, error) {
+  const fallback = extension
+    ? `${extension.toUpperCase()} file stored, but the browser could not extract readable content.`
+    : "File stored, but the browser could not extract readable content.";
+
+  if (!blobStored) {
+    return `${fallback} Re-upload it later if you want AI to inspect the original file.`;
+  }
+
+  const message = error instanceof Error && error.message ? error.message : "";
+  return message ? `${fallback} ${message}` : fallback;
+}
+
+async function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Image conversion failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function blobToBase64(blob) {
+  const dataUrl = await blobToDataUrl(blob);
+  const commaIndex = dataUrl.indexOf(",");
+  return commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
+}
+
+function supportsIndexedDb() {
+  return "indexedDB" in window;
+}
+
+function openDocumentDatabase() {
+  if (!supportsIndexedDb()) {
+    return Promise.reject(new Error("IndexedDB is not supported."));
+  }
+
+  if (!databasePromise) {
+    databasePromise = new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(BLOB_STORE_NAME)) {
+          database.createObjectStore(BLOB_STORE_NAME, { keyPath: "id" });
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+    });
+  }
+
+  return databasePromise;
+}
+
+function requestToPromise(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
+  });
+}
+
+function transactionToPromise(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("IndexedDB transaction failed"));
+    transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted"));
+  });
+}
+
+async function saveDocumentBlob(documentId, blob) {
+  try {
+    const database = await openDocumentDatabase();
+    const transaction = database.transaction(BLOB_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(BLOB_STORE_NAME);
+    await requestToPromise(store.put({ id: documentId, blob, updatedAt: Date.now() }));
+    await transactionToPromise(transaction);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getDocumentBlob(documentId) {
+  const database = await openDocumentDatabase();
+  const transaction = database.transaction(BLOB_STORE_NAME, "readonly");
+  const store = transaction.objectStore(BLOB_STORE_NAME);
+  const result = await requestToPromise(store.get(documentId));
+  await transactionToPromise(transaction);
+  return result && result.blob ? result.blob : null;
+}
+
+async function deleteDocumentBlob(documentId) {
+  if (!supportsIndexedDb()) {
+    return;
+  }
+
+  try {
+    const database = await openDocumentDatabase();
+    const transaction = database.transaction(BLOB_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(BLOB_STORE_NAME);
+    await requestToPromise(store.delete(documentId));
+    await transactionToPromise(transaction);
+  } catch {
+    return;
+  }
 }
